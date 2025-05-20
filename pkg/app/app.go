@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
+	k8sv1 "k8s.io/api/core/v1"
 	k8smetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -54,17 +55,20 @@ func NewApp() *app {
 	vmiInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
-			fmt.Printf("vmi Added: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
+			// fmt.Printf("vmi Added: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
 			CheckVmiStatus(vmi, queue)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			newVMI := newObj.(*kubevirtv1.VirtualMachineInstance)
-			fmt.Printf("vmi Updated: %s/%s, nodeName: %s\n", newVMI.Namespace, newVMI.Name, newVMI.Status.NodeName)
+			// fmt.Printf("oldVmi: %v\n", oldObj.(*kubevirtv1.VirtualMachineInstance))
+			// fmt.Printf("newVMI: %v\n", newVMI)
+			// fmt.Println()
+			// fmt.Printf("vmi Updated: %s/%s, nodeName: %s\n", newVMI.Namespace, newVMI.Name, newVMI.Status.NodeName)
 			CheckVmiStatus(newVMI, queue)
 		},
 		DeleteFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
-			fmt.Printf("vmi Deleted: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
+			// fmt.Printf("vmi Deleted: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
 		},
 	})
 
@@ -120,7 +124,7 @@ func (a *app) Run() {
 			// if err != nil {
 			// 	queue.AddRateLimited(key) // 失败重试
 			// }
-			fmt.Println("key")
+			fmt.Printf("key: %s\n", key)
 		}
 	}()
 
@@ -130,9 +134,11 @@ func (a *app) Run() {
 }
 
 func CheckVmiStatus(vmi *kubevirtv1.VirtualMachineInstance, queue workqueue.RateLimitingInterface) {
-	if vmi.Status.Phase == kubevirtv1.Running {
-		queue.Add(vmi.GetName())
-		fmt.Printf("VMI %s status is running\n", vmi.Name)
+	for _, condition := range vmi.Status.Conditions {
+		if condition.Type == kubevirtv1.VirtualMachineInstanceReady && condition.Status == k8sv1.ConditionTrue {
+			fmt.Printf("VMI %s is ready\n", vmi.Name)
+			queue.Add(vmi.GetName())
+		}
 	}
 }
 
