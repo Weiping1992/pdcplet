@@ -57,7 +57,9 @@ func NewApp() *app {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
 			slog.Debug("Recv Vmi Added Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
 			// fmt.Printf("vmi Added: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
-			CheckVmiStatus(vmi, queue)
+			if isVmiReady(vmi) {
+				queue.Add(vmi.GetName())
+			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			newVMI := newObj.(*kubevirtv1.VirtualMachineInstance)
@@ -66,7 +68,9 @@ func NewApp() *app {
 			// fmt.Printf("oldVmi: %v\n", oldObj.(*kubevirtv1.VirtualMachineInstance))
 			// fmt.Printf("newVMI: %v\n", newVMI)
 			// fmt.Println()
-			CheckVmiStatus(newVMI, queue)
+			if isVmiReady(newVMI) {
+				queue.Add(newVMI.GetName())
+			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
@@ -138,14 +142,15 @@ func (a *app) Run() {
 	<-stopCh
 }
 
-func CheckVmiStatus(vmi *kubevirtv1.VirtualMachineInstance, queue workqueue.RateLimitingInterface) {
+func isVmiReady(vmi *kubevirtv1.VirtualMachineInstance) bool {
 	for _, condition := range vmi.Status.Conditions {
 		if condition.Type == kubevirtv1.VirtualMachineInstanceReady && condition.Status == k8sv1.ConditionTrue {
 			// fmt.Printf("VMI %s is ready\n", vmi.Name)
 			slog.Debug("VMI is ready", "vmiName", vmi.Name)
-			queue.Add(vmi.GetName())
+			return true
 		}
 	}
+	return false
 }
 
 func getNodeName() string {
