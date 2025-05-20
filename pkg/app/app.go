@@ -1,8 +1,7 @@
 package app
 
 import (
-	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -32,7 +31,8 @@ func NewApp() *app {
 	kubevirtClient, defaultNs := NewKubevirtClient()
 
 	nodeName := getNodeName()
-	fmt.Printf("NodeName: %s\n", nodeName)
+	slog.Debug("get NodeName from env", "nodename", nodeName)
+
 	vmiInformer := cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options k8smetav1.ListOptions) (runtime.Object, error) {
@@ -55,19 +55,22 @@ func NewApp() *app {
 	vmiInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
+			slog.Debug("Recv Vmi Added Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
 			// fmt.Printf("vmi Added: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
 			CheckVmiStatus(vmi, queue)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			newVMI := newObj.(*kubevirtv1.VirtualMachineInstance)
+			// fmt.Printf("vmi Updated: %s/%s, nodeName: %s\n", newVMI.Namespace, newVMI.Name, newVMI.Status.NodeName)
+			slog.Debug("Recv Vmi Updated Event", "vmiName", newVMI.Name, "namespace", newVMI.Namespace, "nodeName", newVMI.Status.NodeName)
 			// fmt.Printf("oldVmi: %v\n", oldObj.(*kubevirtv1.VirtualMachineInstance))
 			// fmt.Printf("newVMI: %v\n", newVMI)
 			// fmt.Println()
-			// fmt.Printf("vmi Updated: %s/%s, nodeName: %s\n", newVMI.Namespace, newVMI.Name, newVMI.Status.NodeName)
 			CheckVmiStatus(newVMI, queue)
 		},
 		DeleteFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
+			slog.Debug("Recv Vmi Deleted Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
 			// fmt.Printf("vmi Deleted: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
 		},
 	})
@@ -87,13 +90,15 @@ func NewKubevirtClient() (kubecli.KubevirtClient, string) {
 	// retrive default namespace.
 	namespace, _, err := clientConfig.Namespace()
 	if err != nil {
-		log.Fatalf("error in namespace : %v\n", err)
+		//log.Fatalf("error in namespace : %v\n", err)
+		slog.Error("retrive default namespace failed", "err", err)
 	}
 
 	// get the kubevirt client, using which kubevirt resources can be managed.
 	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
 	if err != nil {
-		log.Fatalf("cannot obtain KubeVirt client: %v\n", err)
+		//log.Fatalf("cannot obtain KubeVirt client: %v\n", err)
+		slog.Error("cannot obtain KubeVirt client", "err", err)
 	}
 	return virtClient, namespace
 }
@@ -124,7 +129,7 @@ func (a *app) Run() {
 			// if err != nil {
 			// 	queue.AddRateLimited(key) // 失败重试
 			// }
-			fmt.Printf("key: %s\n", key)
+			slog.Debug("workqueue get vmi", "key", key)
 		}
 	}()
 
@@ -136,7 +141,8 @@ func (a *app) Run() {
 func CheckVmiStatus(vmi *kubevirtv1.VirtualMachineInstance, queue workqueue.RateLimitingInterface) {
 	for _, condition := range vmi.Status.Conditions {
 		if condition.Type == kubevirtv1.VirtualMachineInstanceReady && condition.Status == k8sv1.ConditionTrue {
-			fmt.Printf("VMI %s is ready\n", vmi.Name)
+			// fmt.Printf("VMI %s is ready\n", vmi.Name)
+			slog.Debug("VMI is ready", "vmiName", vmi.Name)
 			queue.Add(vmi.GetName())
 		}
 	}
@@ -145,7 +151,8 @@ func CheckVmiStatus(vmi *kubevirtv1.VirtualMachineInstance, queue workqueue.Rate
 func getNodeName() string {
 	nodeName := os.Getenv("NODE_NAME")
 	if len(nodeName) == 0 {
-		fmt.Fprintln(os.Stderr, "Cannot read environment variable: NODE_NAME")
+		//fmt.Fprintln(os.Stderr, "Cannot read environment variable: NODE_NAME")
+		slog.Error("Cannot read environment variable: NODE_NAME")
 	}
 	return nodeName
 }
