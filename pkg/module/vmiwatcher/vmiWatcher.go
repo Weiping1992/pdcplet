@@ -1,8 +1,11 @@
-package app
+package vmiwatcher
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"pdcplet/pkg/module"
+	"sync"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -16,17 +19,22 @@ import (
 	"kubevirt.io/client-go/kubecli"
 )
 
-type APP interface {
-	Run()
-}
+const NAME = "VmiWatcher"
 
-type app struct {
+type vmiWatcherModule struct {
+	name           string
 	vmiInformer    cache.SharedIndexInformer
 	kubevirtClient kubecli.KubevirtClient
 	queue          workqueue.RateLimitingInterface
 }
 
-func NewApp() *app {
+func init() {
+	module.RegisterInit(func() {
+		module.RegisterConstructor(NAME, NewVmiWatcherModule) // register to module registry
+	})
+}
+
+func NewVmiWatcherModule() module.Module {
 
 	kubevirtClient, defaultNs := NewKubevirtClient()
 
@@ -79,7 +87,8 @@ func NewApp() *app {
 		},
 	})
 
-	return &app{
+	return &vmiWatcherModule{
+		name:           NAME,
 		vmiInformer:    vmiInformer,
 		kubevirtClient: kubevirtClient,
 		queue:          queue,
@@ -107,39 +116,45 @@ func NewKubevirtClient() (kubecli.KubevirtClient, string) {
 	return virtClient, namespace
 }
 
-func (a *app) Run() {
-	// vmList, vmiList := a.c.GetAllVmListInDefaultNamespace()
-	// w := tabwriter.NewWriter(os.Stdout, 0, 0, 5, ' ', 0)
-	// fmt.Fprintln(w, "Type\tName\tNamespace\tStatus")
+func (a *vmiWatcherModule) Name() string {
+	return a.name
+}
 
-	// for _, vm := range vmList.Items {
-	// 	fmt.Fprintf(w, "%s\t%s\t%s\t%v\n", vm.Kind, vm.Name, vm.Namespace, vm.Status.Ready)
-	// }
-	// for _, vmi := range vmiList.Items {
-	// 	fmt.Fprintf(w, "%s\t%s\t%s\t%v\n", vmi.Kind, vmi.Name, vmi.Namespace, vmi.Status.Phase)
-	// }
-	// w.Flush()
-
-	go func() {
-		for {
-			key, quit := a.queue.Get()
-			if quit {
-				return
-			}
-			defer a.queue.Done(key)
-
-			// // 触发 HTTP 请求
-			// resp, err := http.Post("https://your-api-endpoint", "application/json", nil)
-			// if err != nil {
-			// 	queue.AddRateLimited(key) // 失败重试
-			// }
-			slog.Debug("workqueue get vmi", "key", key)
-		}
-	}()
+func (a *vmiWatcherModule) Run(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 
 	stopCh := make(chan struct{})
+	defer close(stopCh)
 	go a.vmiInformer.Run(stopCh)
-	<-stopCh
+
+	if !cache.WaitForCacheSync(ctx.Done(), a.vmiInformer.HasSynced) {
+		slog.Error("WaitForCacheSync timeout")
+		return
+	}
+
+	queueCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		<-queueCtx.Done()
+		slog.Info("Get exit signal", "ModuleName", a.name)
+		a.queue.ShutDown()
+	}()
+
+	for {
+		key, quit := a.queue.Get()
+		if quit {
+			return
+		}
+		// // 触发 HTTP 请求
+		// resp, err := http.Post("https://your-api-endpoint", "application/json", nil)
+		// if err != nil {
+		// 	queue.AddRateLimited(key) // 失败重试
+		// }
+		slog.Debug("workqueue get vmi", "key", key)
+		a.queue.Done(key)
+	}
+
 }
 
 func isVmiReady(vmi *kubevirtv1.VirtualMachineInstance) bool {

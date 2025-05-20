@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"pdcplet/pkg/app"
+	"pdcplet/pkg/framework"
 	"pdcplet/pkg/log"
 	"strings"
 
@@ -47,7 +47,12 @@ var rootCmd = &cobra.Command{
 			//fmt.Fprintln(os.Stderr, "Webhook watchmode DO NOT IMPLEMENT") // TODO：[log]
 			slog.Error("Webhook watchmode DO NOT IMPLEMENT")
 		case WatchModeListWatch:
-			app.NewApp().Run()
+			f := framework.NewFramework([]string{"vmiWatcher"})
+			if f == nil {
+				return
+			}
+			f.Init()
+			f.Start()
 		case WatchModeUnsupported:
 			slog.Error("Unknow WatchMode which must in ['listandwatch', 'webhook']")
 			//fmt.Fprintln(os.Stderr, "Unknow WatchMode which must in ['listandwatch', 'webhook']") // TODO：[log]
