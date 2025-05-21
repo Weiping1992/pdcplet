@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	vcache "pdcplet/pkg/cache"
+	"pdcplet/pkg/internal/inpplat"
 	"pdcplet/pkg/module"
 	"sync"
 	"time"
@@ -23,9 +25,11 @@ const NAME = "VmiWatcher"
 
 type vmiWatcherModule struct {
 	name           string
+	cache          vcache.Cache
 	vmiInformer    cache.SharedIndexInformer
 	kubevirtClient kubecli.KubevirtClient
 	queue          workqueue.RateLimitingInterface
+	proxy          inpplat.Proxy
 }
 
 func init() {
@@ -59,14 +63,26 @@ func NewVmiWatcherModule() module.Module {
 		cache.Indexers{},
 	)
 
+	statusCache := vcache.NewVmiStatusCache()
+
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	vmiInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
 			slog.Debug("Recv Vmi Added Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
-			// fmt.Printf("vmi Added: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
+			// fmt.Printf("vqueuemi Added: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
+			var vmiStatus vcache.VmiStatus
 			if isVmiReady(vmi) {
-				queue.Add(vmi.GetName())
+				vmiStatus = vcache.VmiStatusReady
+			} else {
+				vmiStatus = vcache.VmiStatusNotReady
+			}
+			if statusCache.Update(vmi.Name, vmiStatus) {
+				item := workqueueItem{
+					vmi: vmi,
+					op:  CreateTaskOp,
+				}
+				queue.Add(item)
 			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
@@ -76,22 +92,42 @@ func NewVmiWatcherModule() module.Module {
 			// fmt.Printf("oldVmi: %v\n", oldObj.(*kubevirtv1.VirtualMachineInstance))
 			// fmt.Printf("newVMI: %v\n", newVMI)
 			// fmt.Println()
+			var vmiStatus vcache.VmiStatus
 			if isVmiReady(newVMI) {
-				queue.Add(newVMI.GetName())
+				vmiStatus = vcache.VmiStatusReady
+			} else {
+				vmiStatus = vcache.VmiStatusNotReady
+			}
+			if statusCache.Update(newVMI.Name, vmiStatus) {
+				item := workqueueItem{
+					vmi: newVMI,
+					op:  CreateTaskOp,
+				}
+				queue.Add(item)
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
 			slog.Debug("Recv Vmi Deleted Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
 			// fmt.Printf("vmi Deleted: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
+			statusCache.MarkDelete(vmi.Name)
+			item := workqueueItem{
+				vmi: vmi,
+				op:  CloseTaskOp,
+			}
+			queue.Add(item)
 		},
 	})
 
+	proxy := inpplat.NewMockProxy()
+
 	return &vmiWatcherModule{
 		name:           NAME,
+		cache:          statusCache,
 		vmiInformer:    vmiInformer,
 		kubevirtClient: kubevirtClient,
 		queue:          queue,
+		proxy:          proxy,
 	}
 }
 
@@ -146,15 +182,37 @@ func (a *vmiWatcherModule) Run(ctx context.Context, wg *sync.WaitGroup) {
 		if quit {
 			return
 		}
-		// // 触发 HTTP 请求
-		// resp, err := http.Post("https://your-api-endpoint", "application/json", nil)
-		// if err != nil {
-		// 	queue.AddRateLimited(key) // 失败重试
-		// }
-		slog.Debug("workqueue get vmi", "key", key)
+		a.doJob(key)
 		a.queue.Done(key)
 	}
+}
 
+func (a *vmiWatcherModule) doJob(key interface{}) {
+	workItem := key.(workqueueItem)
+	switch workItem.op {
+	case CreateTaskOp:
+		taskId, err := a.proxy.CreateTask(map[string]string{
+			"name": workItem.vmi.Name,
+		})
+		if err != nil {
+			slog.Error("CreateTask failed", "vmiName", workItem.vmi.Name, "taskId", taskId, "errMsg", err)
+		} else {
+			a.cache.SetTaskId(workItem.vmi.Name, taskId)
+			slog.Info("CreateTask sucessfully", "taskId", taskId)
+		}
+
+	case CloseTaskOp:
+		taskId, err := a.cache.GetTaskId(workItem.vmi.Name)
+		if err != nil {
+			slog.Error("GetTaskId from cache failed", "errMsg", err)
+		}
+		err = a.proxy.CloseTask(taskId)
+		if err != nil {
+			slog.Error("CloseTask failed", "vmiName", workItem.vmi.Name, "taskId", taskId, "errMsg", err)
+		}
+		a.cache.DeleteDone(workItem.vmi.Name)
+	}
+	slog.Debug("workqueue get vmi", "vmiName", workItem.vmi.Name)
 }
 
 func isVmiReady(vmi *kubevirtv1.VirtualMachineInstance) bool {
