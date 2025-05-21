@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	vcache "pdcplet/pkg/cache"
 	"pdcplet/pkg/module"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ const NAME = "VmiWatcher"
 
 type vmiWatcherModule struct {
 	name           string
+	cache          vcache.Cache
 	vmiInformer    cache.SharedIndexInformer
 	kubevirtClient kubecli.KubevirtClient
 	queue          workqueue.RateLimitingInterface
@@ -59,13 +61,21 @@ func NewVmiWatcherModule() module.Module {
 		cache.Indexers{},
 	)
 
+	statusCache := vcache.NewVmiStatusCache()
+
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	vmiInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
 			slog.Debug("Recv Vmi Added Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
 			// fmt.Printf("vmi Added: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
+			var vmiStatus vcache.VmiStatus
 			if isVmiReady(vmi) {
+				vmiStatus = vcache.VmiStatusReady
+			} else {
+				vmiStatus = vcache.VmiStatusNotReady
+			}
+			if statusCache.Update(vmi.Name, vmiStatus) {
 				queue.Add(vmi.GetName())
 			}
 		},
@@ -76,7 +86,13 @@ func NewVmiWatcherModule() module.Module {
 			// fmt.Printf("oldVmi: %v\n", oldObj.(*kubevirtv1.VirtualMachineInstance))
 			// fmt.Printf("newVMI: %v\n", newVMI)
 			// fmt.Println()
+			var vmiStatus vcache.VmiStatus
 			if isVmiReady(newVMI) {
+				vmiStatus = vcache.VmiStatusReady
+			} else {
+				vmiStatus = vcache.VmiStatusNotReady
+			}
+			if statusCache.Update(newVMI.Name, vmiStatus) {
 				queue.Add(newVMI.GetName())
 			}
 		},
@@ -84,11 +100,13 @@ func NewVmiWatcherModule() module.Module {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
 			slog.Debug("Recv Vmi Deleted Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
 			// fmt.Printf("vmi Deleted: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
+			statusCache.Delete(vmi.Name)
 		},
 	})
 
 	return &vmiWatcherModule{
 		name:           NAME,
+		cache:          statusCache,
 		vmiInformer:    vmiInformer,
 		kubevirtClient: kubevirtClient,
 		queue:          queue,
