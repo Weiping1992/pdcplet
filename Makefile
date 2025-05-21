@@ -5,6 +5,11 @@ BINARY_DIR = bin/
 SRC_FILES = $(wildcard *.go)
 TEST_OUTPUT_DIR = ./test/
 
+# MOCK配置
+MOCK_DIR = mock/
+MOCK_BIN = mockserver
+MOCK_SRC = mockserver.go
+
 # 构建参数
 BUILD_FLAGS = -ldflags="-s -w" # 减小二进制体积
 RACE_FLAGS = -race             # 竞态检测
@@ -17,6 +22,7 @@ all: build
 ## 编译项目
 build:
 	$(GO) build $(BUILD_FLAGS) -o $(BINARY_DIR)$(BINARY_NAME) main.go
+	$(GO) build $(BUILD_FLAGS) -o $(BINARY_DIR)$(MOCK_BIN) $(MOCK_DIR)$(MOCK_SRC)
 
 ## 编译并运行
 run: build
@@ -53,7 +59,8 @@ lint:
 ## 清理构建产物
 clean:
 	$(GO) clean
-	rm -f $(BINARY_NAME)*
+	rm -f $(BINARY_DIR)$(BINARY_NAME)*
+	rm -f $(BINARY_DIR)$(MOCK_BIN)*
 	rm -rf $(TEST_OUTPUT_DIR)
 
 ## 显示帮助
