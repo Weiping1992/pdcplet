@@ -1,6 +1,7 @@
 package inpplat
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -16,6 +17,10 @@ type Client interface {
 	SendHeartbeat(int) error
 	BindRules([]Rule) error
 	UnbindRules([]Rule) error
+	// GetForwardMetricsByVid(vid []int) error
+	GetForwardMetricsByTask(taskId int) (ForwardMetrics, error)
+	GetAllForwardMetricsGroupByTask() ([]ForwardMetrics, error)
+	// GetAllForwardMetricsGroupByVid() error
 }
 
 const (
@@ -24,19 +29,8 @@ const (
 	HEARTBEATROUTER   = "/api/task/heartbeat"
 	BINDRULESROUTER   = "/api/rules/bind"
 	UNBINDRULESROUTER = "/api/rules/unbind"
+	GETFORWARDMETRICS = "/api/metrics/"
 )
-
-// TODO: 约定传参
-type CreateTaskParams struct {
-	Name string `mapstructure:"name"`
-	VID  string `mapstructure:"vid"`
-}
-
-// TODO: 约定返回接口
-type CreateTaskResult struct {
-	Name string `json:"name"`
-	Id   int    `json:"id"`
-}
 
 func CompleteTaskParams(taskParams map[string]string) CreateTaskParams {
 	var params CreateTaskParams
@@ -162,4 +156,40 @@ func (p *restProxyClient) UnbindRules(rules []Rule) error {
 	}
 
 	return err
+}
+
+func (p *restProxyClient) GetForwardMetricsByTask(taskId int) (ForwardMetrics, error) {
+	var result ForwardMetrics
+
+	resp, err := p.client.R().
+		SetResult(&result).
+		Get(GETFORWARDMETRICS + "task/" + fmt.Sprintf("%d", taskId))
+	if err != nil {
+		return ForwardMetrics{}, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		slog.Error("GetForwardMetricsByTask failed, Recvied: %s", "Response Message", resp.String())
+		return ForwardMetrics{}, err
+	}
+
+	slog.Info("GetForwardMetricsByTask success", "result", result)
+	return result, nil
+}
+
+func (p *restProxyClient) GetAllForwardMetricsGroupByTask() ([]ForwardMetrics, error) {
+	var results []ForwardMetrics
+
+	resp, err := p.client.R().
+		SetResult(&results).
+		Get(GETFORWARDMETRICS + "task/all")
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		slog.Error("GetAllForwardMetricsGroupByTask failed, Recvied: %s", "Response Message", resp.String())
+		return nil, err
+	}
+
+	slog.Info("GetAllForwardMetricsGroupByTask success", "results", results)
+	return results, nil
 }
