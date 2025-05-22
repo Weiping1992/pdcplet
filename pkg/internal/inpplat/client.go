@@ -10,7 +10,7 @@ import (
 	"resty.dev/v3"
 )
 
-type Proxy interface {
+type Client interface {
 	CreateTask(map[string]string) (int, error)
 	CloseTask(int) error
 	SendHeartbeat(int) error
@@ -54,11 +54,11 @@ const (
 	HTTP_TIMEOUT = 5 //seconds
 )
 
-type restProxy struct {
+type restProxyClient struct {
 	client *resty.Client
 }
 
-func NewProxy(addr, port, baseUrl, authToken string) Proxy {
+func NewClient(addr, port, baseUrl, authToken string) Client {
 	if !strings.HasPrefix(baseUrl, "/") {
 		baseUrl = "/" + baseUrl
 	}
@@ -69,16 +69,16 @@ func NewProxy(addr, port, baseUrl, authToken string) Proxy {
 		SetTimeout(HTTP_TIMEOUT * time.Second).
 		SetHeaders(map[string]string{"Content-Type": "application/json"})
 
-	return &restProxy{
+	return &restProxyClient{
 		client: client,
 	}
 }
 
-func NewMockProxy() Proxy {
-	return NewProxy(MOCK_ADDRESS, MOCK_PORT, MOCK_API_BASE_URL, "")
+func NewMockClient() Client {
+	return NewClient(MOCK_ADDRESS, MOCK_PORT, MOCK_API_BASE_URL, "")
 }
 
-func (p *restProxy) CreateTask(taskParams map[string]string) (int, error) {
+func (p *restProxyClient) CreateTask(taskParams map[string]string) (int, error) {
 
 	var result CreateTaskResult
 
@@ -99,7 +99,7 @@ func (p *restProxy) CreateTask(taskParams map[string]string) (int, error) {
 	return result.Id, err
 }
 
-func (p *restProxy) CloseTask(id int) error {
+func (p *restProxyClient) CloseTask(id int) error {
 
 	resp, err := p.client.R().
 		SetBody(map[string]int{"id": id}).
@@ -116,7 +116,7 @@ func (p *restProxy) CloseTask(id int) error {
 	return err
 }
 
-func (p *restProxy) SendHeartbeat(id int) error {
+func (p *restProxyClient) SendHeartbeat(id int) error {
 	resp, err := p.client.R().
 		SetBody(map[string]int{"id": id}).
 		Post(HEARTBEATROUTER)
@@ -132,7 +132,7 @@ func (p *restProxy) SendHeartbeat(id int) error {
 	return err
 }
 
-func (p *restProxy) BindRules(rules []Rule) error {
+func (p *restProxyClient) BindRules(rules []Rule) error {
 	resp, err := p.client.R().
 		SetBody(rules).
 		Post(BINDRULESROUTER)
@@ -148,7 +148,7 @@ func (p *restProxy) BindRules(rules []Rule) error {
 	return err
 }
 
-func (p *restProxy) UnbindRules(rules []Rule) error {
+func (p *restProxyClient) UnbindRules(rules []Rule) error {
 	resp, err := p.client.R().
 		SetBody(rules).
 		Post(UNBINDRULESROUTER)
