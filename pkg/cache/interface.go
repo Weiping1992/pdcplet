@@ -1,7 +1,7 @@
 package cache
 
 type Cache interface {
-	Update(vmiName string, status VmiStatus) bool
+	Update(vmiName string, status VmiStatus) (bool, bool)
 	MarkDelete(vmiName string)
 	DeleteDone(vmiName string)
 	SetTaskId(vmiName string, taskId int) error

@@ -22,16 +22,17 @@ func NewVmiStatusCache() *vmiStatusCache {
 	}
 }
 
-// FIXME: 解决多个Update事件中任务会被重复创建的问题。
-func (c *vmiStatusCache) Update(vmiName string, status VmiStatus) (isStatusChanged bool) {
+func (c *vmiStatusCache) Update(vmiName string, status VmiStatus) (isStatusChanged bool, isReady bool) {
 	lastStatus, exist := c.cacheMap[vmiName]
 	if !exist {
 		c.cacheMap[vmiName] = status
-		return status == VmiStatusReady
+		fmt.Printf("no exsits before, status: %d, changed: %t\n", status, status == VmiStatusReady)
+		return status == VmiStatusReady, status == VmiStatusReady
 	}
 	changed := lastStatus != status
 	c.cacheMap[vmiName] = status
-	return changed
+	fmt.Printf("exsits, status: %d, lastStatus: %d, changed: %t\n", status, lastStatus, changed)
+	return changed, status == VmiStatusReady
 }
 
 func (c *vmiStatusCache) MarkDelete(vmiName string) {

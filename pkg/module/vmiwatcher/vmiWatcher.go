@@ -77,7 +77,7 @@ func NewVmiWatcherModule() module.Module {
 			} else {
 				vmiStatus = vcache.VmiStatusNotReady
 			}
-			if statusCache.Update(vmi.Name, vmiStatus) {
+			if isStatusChanged, isReady := statusCache.Update(vmi.Name, vmiStatus); isStatusChanged && isReady {
 				item := workqueueItem{
 					vmi: vmi,
 					op:  CreateTaskOp,
@@ -98,7 +98,7 @@ func NewVmiWatcherModule() module.Module {
 			} else {
 				vmiStatus = vcache.VmiStatusNotReady
 			}
-			if statusCache.Update(newVMI.Name, vmiStatus) {
+			if isStatusChanged, isReady := statusCache.Update(newVMI.Name, vmiStatus); isStatusChanged && isReady {
 				item := workqueueItem{
 					vmi: newVMI,
 					op:  CreateTaskOp,
@@ -189,6 +189,7 @@ func (a *vmiWatcherModule) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 func (a *vmiWatcherModule) doJob(key interface{}) {
 	workItem := key.(workqueueItem)
+	slog.Debug("workqueue get vmi", "vmiName", workItem.vmi.Name)
 	switch workItem.op {
 	case CreateTaskOp:
 		taskId, err := a.proxy.CreateTask(map[string]string{
@@ -212,7 +213,6 @@ func (a *vmiWatcherModule) doJob(key interface{}) {
 		}
 		a.cache.DeleteDone(workItem.vmi.Name)
 	}
-	slog.Debug("workqueue get vmi", "vmiName", workItem.vmi.Name)
 }
 
 func isVmiReady(vmi *kubevirtv1.VirtualMachineInstance) bool {
