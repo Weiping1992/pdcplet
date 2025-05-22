@@ -1,4 +1,4 @@
-package vmiwatcher
+package vmiproxy
 
 import (
 	kubevirtv1 "kubevirt.io/api/core/v1"

@@ -1,4 +1,4 @@
-package vmiwatcher
+package vmiproxy
 
 import (
 	"context"
@@ -21,9 +21,9 @@ import (
 	"kubevirt.io/client-go/kubecli"
 )
 
-const NAME = "VmiWatcher"
+const NAME = "VmiProxy"
 
-type vmiWatcherModule struct {
+type vmiProxyModule struct {
 	name           string
 	cache          vcache.Cache
 	vmiInformer    cache.SharedIndexInformer
@@ -34,11 +34,11 @@ type vmiWatcherModule struct {
 
 func init() {
 	module.RegisterInit(func() {
-		module.RegisterConstructor(NAME, NewVmiWatcherModule) // register to module registry
+		module.RegisterConstructor(NAME, NewVmiProxyModule) // register to module registry
 	})
 }
 
-func NewVmiWatcherModule() module.Module {
+func NewVmiProxyModule() module.Module {
 
 	kubevirtClient, defaultNs := NewKubevirtClient()
 
@@ -121,7 +121,7 @@ func NewVmiWatcherModule() module.Module {
 
 	proxy := inpplat.NewMockProxy()
 
-	return &vmiWatcherModule{
+	return &vmiProxyModule{
 		name:           NAME,
 		cache:          statusCache,
 		vmiInformer:    vmiInformer,
@@ -152,11 +152,11 @@ func NewKubevirtClient() (kubecli.KubevirtClient, string) {
 	return virtClient, namespace
 }
 
-func (a *vmiWatcherModule) Name() string {
+func (a *vmiProxyModule) Name() string {
 	return a.name
 }
 
-func (a *vmiWatcherModule) Run(ctx context.Context, wg *sync.WaitGroup) {
+func (a *vmiProxyModule) Run(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	stopCh := make(chan struct{})
@@ -187,7 +187,7 @@ func (a *vmiWatcherModule) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (a *vmiWatcherModule) doJob(key interface{}) {
+func (a *vmiProxyModule) doJob(key interface{}) {
 	workItem := key.(workqueueItem)
 	slog.Debug("workqueue get vmi", "vmiName", workItem.vmi.Name)
 	switch workItem.op {
