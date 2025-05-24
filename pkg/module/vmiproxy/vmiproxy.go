@@ -1,4 +1,4 @@
-package vmiwatcher
+package vmiproxy
 
 import (
 	"context"
@@ -21,24 +21,24 @@ import (
 	"kubevirt.io/client-go/kubecli"
 )
 
-const NAME = "VmiWatcher"
+const NAME = "VmiProxy"
 
-type vmiWatcherModule struct {
+type vmiProxyModule struct {
 	name           string
 	cache          vcache.Cache
 	vmiInformer    cache.SharedIndexInformer
 	kubevirtClient kubecli.KubevirtClient
 	queue          workqueue.RateLimitingInterface
-	proxy          inpplat.Proxy
+	inpclient      inpplat.Client
 }
 
 func init() {
 	module.RegisterInit(func() {
-		module.RegisterConstructor(NAME, NewVmiWatcherModule) // register to module registry
+		module.RegisterConstructor(NAME, NewVmiProxyModule) // register to module registry
 	})
 }
 
-func NewVmiWatcherModule() module.Module {
+func NewVmiProxyModule() module.Module {
 
 	kubevirtClient, defaultNs := NewKubevirtClient()
 
@@ -70,14 +70,19 @@ func NewVmiWatcherModule() module.Module {
 		AddFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
 			slog.Debug("Recv Vmi Added Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
-			// fmt.Printf("vqueuemi Added: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
 			var vmiStatus vcache.VmiStatus
 			if isVmiReady(vmi) {
 				vmiStatus = vcache.VmiStatusReady
 			} else {
 				vmiStatus = vcache.VmiStatusNotReady
 			}
-			if statusCache.Update(vmi.Name, vmiStatus) {
+			isStatusChanged := statusCache.Update(vmi.Name, vmiStatus)
+			isTaskCreated, err := statusCache.IsTaskCreated(vmi.Name)
+			if err != nil {
+				slog.Error("IsTaskCreated() get vmi taskStatus failed", "vmiName", vmi.Name, "errMsg", err)
+				isTaskCreated = false
+			}
+			if isStatusChanged && vmiStatus == vcache.VmiStatusReady && !isTaskCreated {
 				item := workqueueItem{
 					vmi: vmi,
 					op:  CreateTaskOp,
@@ -87,47 +92,69 @@ func NewVmiWatcherModule() module.Module {
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			newVMI := newObj.(*kubevirtv1.VirtualMachineInstance)
-			// fmt.Printf("vmi Updated: %s/%s, nodeName: %s\n", newVMI.Namespace, newVMI.Name, newVMI.Status.NodeName)
 			slog.Debug("Recv Vmi Updated Event", "vmiName", newVMI.Name, "namespace", newVMI.Namespace, "nodeName", newVMI.Status.NodeName)
-			// fmt.Printf("oldVmi: %v\n", oldObj.(*kubevirtv1.VirtualMachineInstance))
-			// fmt.Printf("newVMI: %v\n", newVMI)
-			// fmt.Println()
 			var vmiStatus vcache.VmiStatus
 			if isVmiReady(newVMI) {
 				vmiStatus = vcache.VmiStatusReady
 			} else {
 				vmiStatus = vcache.VmiStatusNotReady
 			}
-			if statusCache.Update(newVMI.Name, vmiStatus) {
-				item := workqueueItem{
-					vmi: newVMI,
-					op:  CreateTaskOp,
+			isStatusChanged := statusCache.Update(newVMI.Name, vmiStatus)
+			isTaskCreated, err := statusCache.IsTaskCreated(newVMI.Name)
+			if err != nil {
+				slog.Error("IsTaskCreated() get vmi taskStatus failed", "vmiName", newVMI.Name, "errMsg", err)
+				isTaskCreated = false
+			}
+			if isStatusChanged {
+				if vmiStatus == vcache.VmiStatusReady && !isTaskCreated {
+					item := workqueueItem{
+						vmi: newVMI,
+						op:  CreateTaskOp,
+					}
+					queue.Add(item)
 				}
-				queue.Add(item)
+				if vmiStatus == vcache.VmiStatusNotReady && isTaskCreated {
+					item := workqueueItem{
+						vmi: newVMI,
+						op:  CloseTaskOp,
+					}
+					queue.Add(item)
+				}
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			vmi := obj.(*kubevirtv1.VirtualMachineInstance)
 			slog.Debug("Recv Vmi Deleted Event", "vmiName", vmi.Name, "namespace", vmi.Namespace, "nodeName", vmi.Status.NodeName)
-			// fmt.Printf("vmi Deleted: %s/%s, nodeName: %s\n", vmi.Namespace, vmi.Name, vmi.Status.NodeName)
-			statusCache.MarkDelete(vmi.Name)
-			item := workqueueItem{
-				vmi: vmi,
-				op:  CloseTaskOp,
+			isTaskClosed, err := statusCache.IsTaskClosed(vmi.Name)
+			if err != nil {
+				slog.Error("IsTaskClosed() get vmi taskStatus failed", "vmiName", vmi.Name, "errMsg", err)
+				isTaskClosed = false
 			}
-			queue.Add(item)
+			isTaskCreated, err := statusCache.IsTaskCreated(vmi.Name)
+			if err != nil {
+				slog.Error("IsTaskCreated() get vmi taskStatus failed", "vmiName", vmi.Name, "errMsg", err)
+				isTaskCreated = false
+			}
+			if isTaskCreated && !isTaskClosed {
+				item := workqueueItem{
+					vmi: vmi,
+					op:  CloseTaskOp,
+				}
+				queue.Add(item)
+			}
+			statusCache.Delete(vmi.Name)
 		},
 	})
 
-	proxy := inpplat.NewMockProxy()
+	proxy := inpplat.NewMockClient()
 
-	return &vmiWatcherModule{
+	return &vmiProxyModule{
 		name:           NAME,
 		cache:          statusCache,
 		vmiInformer:    vmiInformer,
 		kubevirtClient: kubevirtClient,
 		queue:          queue,
-		proxy:          proxy,
+		inpclient:      proxy,
 	}
 }
 
@@ -152,11 +179,11 @@ func NewKubevirtClient() (kubecli.KubevirtClient, string) {
 	return virtClient, namespace
 }
 
-func (a *vmiWatcherModule) Name() string {
+func (a *vmiProxyModule) Name() string {
 	return a.name
 }
 
-func (a *vmiWatcherModule) Run(ctx context.Context, wg *sync.WaitGroup) {
+func (a *vmiProxyModule) Run(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	stopCh := make(chan struct{})
@@ -187,18 +214,22 @@ func (a *vmiWatcherModule) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (a *vmiWatcherModule) doJob(key interface{}) {
+func (a *vmiProxyModule) doJob(key interface{}) {
 	workItem := key.(workqueueItem)
+	slog.Debug("workqueue get vmi", "vmiName", workItem.vmi.Name)
 	switch workItem.op {
 	case CreateTaskOp:
-		taskId, err := a.proxy.CreateTask(map[string]string{
+		taskId, err := a.inpclient.CreateTask(map[string]string{
 			"name": workItem.vmi.Name,
 		})
 		if err != nil {
 			slog.Error("CreateTask failed", "vmiName", workItem.vmi.Name, "taskId", taskId, "errMsg", err)
+			a.queue.AddRateLimited(workItem)
 		} else {
 			a.cache.SetTaskId(workItem.vmi.Name, taskId)
 			slog.Info("CreateTask sucessfully", "taskId", taskId)
+			a.cache.MarkTaskCreated(workItem.vmi.Name)
+			a.queue.Forget(workItem)
 		}
 
 	case CloseTaskOp:
@@ -206,13 +237,16 @@ func (a *vmiWatcherModule) doJob(key interface{}) {
 		if err != nil {
 			slog.Error("GetTaskId from cache failed", "errMsg", err)
 		}
-		err = a.proxy.CloseTask(taskId)
+		err = a.inpclient.CloseTask(taskId)
 		if err != nil {
 			slog.Error("CloseTask failed", "vmiName", workItem.vmi.Name, "taskId", taskId, "errMsg", err)
+			a.queue.AddRateLimited(workItem)
+		} else {
+			slog.Info("CloseTask sucessfully", "taskId", taskId)
+			a.cache.MarkTaskClosed(workItem.vmi.Name)
+			a.queue.Forget(workItem)
 		}
-		a.cache.DeleteDone(workItem.vmi.Name)
 	}
-	slog.Debug("workqueue get vmi", "vmiName", workItem.vmi.Name)
 }
 
 func isVmiReady(vmi *kubevirtv1.VirtualMachineInstance) bool {

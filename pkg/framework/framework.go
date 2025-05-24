@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"pdcplet/pkg/module"
-	_ "pdcplet/pkg/module/vmiwatcher"
+	_ "pdcplet/pkg/module/vmiproxy"
 	"strings"
 	"sync"
 	"syscall"
