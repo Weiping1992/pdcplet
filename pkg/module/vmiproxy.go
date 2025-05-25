@@ -1,12 +1,12 @@
-package vmiproxy
+package module
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	vcache "pdcplet/pkg/cache"
 	"pdcplet/pkg/internal/inpplat"
-	"pdcplet/pkg/module"
 	"sync"
 	"time"
 
@@ -21,7 +21,7 @@ import (
 	"kubevirt.io/client-go/kubecli"
 )
 
-const NAME = "VmiProxy"
+const VMI_PROXY_NAME = "VmiProxy"
 
 type vmiProxyModule struct {
 	name           string
@@ -32,17 +32,32 @@ type vmiProxyModule struct {
 	inpclient      inpplat.Client
 }
 
-func init() {
-	module.RegisterInit(func() {
-		module.RegisterConstructor(NAME, NewVmiProxyModule) // register to module registry
-	})
+
+
+type VmiProxyConfig struct {
+	Proxy struct{
+			Addr      string
+			Port      string
+			BaseUrl   string
+			AuthToken string
+		}
+
 }
 
-func NewVmiProxyModule() module.Module {
+func NewVmiProxyModule(params ...interface{}) (Module, error) {
+
+	if len(params) != 1 || params[0]. == nil {
+		return nil, fmt.Errorf("VmiProxyModule params error")
+
+	}
+
 
 	kubevirtClient, defaultNs := NewKubevirtClient()
 
-	nodeName := getNodeName()
+	nodeName, err := getNodeName()
+	if err != nil {
+		return nil, err
+	}
 	slog.Debug("get NodeName from env", "nodename", nodeName)
 
 	vmiInformer := cache.NewSharedIndexInformer(
@@ -146,16 +161,18 @@ func NewVmiProxyModule() module.Module {
 		},
 	})
 
-	proxy := inpplat.NewMockClient()
+	proxy := inpplat.NewClient(
+		addr: 
+	)
 
 	return &vmiProxyModule{
-		name:           NAME,
+		name:           VMI_PROXY_NAME,
 		cache:          statusCache,
 		vmiInformer:    vmiInformer,
 		kubevirtClient: kubevirtClient,
 		queue:          queue,
 		inpclient:      proxy,
-	}
+	}, nil
 }
 
 func NewKubevirtClient() (kubecli.KubevirtClient, string) {
@@ -249,6 +266,18 @@ func (a *vmiProxyModule) doJob(key interface{}) {
 	}
 }
 
+type OperateType int
+
+const (
+	CreateTaskOp OperateType = iota
+	CloseTaskOp
+)
+
+type workqueueItem struct {
+	vmi *kubevirtv1.VirtualMachineInstance
+	op  OperateType
+}
+
 func isVmiReady(vmi *kubevirtv1.VirtualMachineInstance) bool {
 	for _, condition := range vmi.Status.Conditions {
 		if condition.Type == kubevirtv1.VirtualMachineInstanceReady && condition.Status == k8sv1.ConditionTrue {
@@ -260,11 +289,11 @@ func isVmiReady(vmi *kubevirtv1.VirtualMachineInstance) bool {
 	return false
 }
 
-func getNodeName() string {
+func getNodeName() (string, error) {
 	nodeName := os.Getenv("NODE_NAME")
 	if len(nodeName) == 0 {
-		//fmt.Fprintln(os.Stderr, "Cannot read environment variable: NODE_NAME")
 		slog.Error("Cannot read environment variable: NODE_NAME")
+		return "", fmt.Errorf("Cannot read environment variable: NODE_NAME")
 	}
-	return nodeName
+	return nodeName, nil
 }

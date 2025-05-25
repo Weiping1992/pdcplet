@@ -37,6 +37,9 @@ func main() {
 		if r.URL.Path == "/mock/api/task/create" {
 			handleCreate(w, r)
 			return
+		} else if r.URL.Path == "/mock/api/metrics/" {
+			handleMetrics()
+			return
 		}
 
 		// 默认响应（网页4方案）
@@ -79,4 +82,8 @@ func handleCreate(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "内部服务器错误", http.StatusInternalServerError)
 	}
+}
+
+func handleMetrics(w http.ResponseWriter, r *http.Request) {
+	return
 }

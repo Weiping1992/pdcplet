@@ -1,10 +1,9 @@
-package vmimetrics
+package module
 
 import (
 	"context"
 	"log/slog"
 	"pdcplet/pkg/internal/inpplat"
-	"pdcplet/pkg/module"
 	"strings"
 	"sync"
 	"time"
@@ -12,7 +11,7 @@ import (
 	"resty.dev/v3"
 )
 
-const NAME = "VmiMetrics"
+const VMI_METRICS_NAME = "VmiMetrics"
 
 type vmiMetricsModule struct {
 	name       string
@@ -21,11 +20,6 @@ type vmiMetricsModule struct {
 	cycle      time.Duration // 采集周期
 }
 
-func init() {
-	module.RegisterInit(func() {
-		module.RegisterConstructor(NAME, NewDefaultVmiMetricsModule)
-	})
-}
 
 type RestClientConfig struct {
 	Addr      string
@@ -50,7 +44,13 @@ func NewDefaultVmiMetricsModule() module.Module {
 	return NewVmiMetricsModule(&MOCK_SERVER, DEFAULT_CYCLE)
 }
 
-func NewVmiMetricsModule(config *RestClientConfig, cycle time.Duration) module.Module {
+func NewVmiMetricsModule(params ...interface{}) (module.Module, error) {
+	if len(params) != 2 {
+		return
+	}
+
+	config *RestClientConfig, cycle time.Duration
+
 	// 1: restclient
 	if config == nil {
 		config = &MOCK_SERVER

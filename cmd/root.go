@@ -47,11 +47,10 @@ var rootCmd = &cobra.Command{
 			//fmt.Fprintln(os.Stderr, "Webhook watchmode DO NOT IMPLEMENT") // TODO：[log]
 			slog.Error("Webhook watchmode DO NOT IMPLEMENT")
 		case WatchModeListWatch:
-			f := framework.NewFramework([]string{"vmiproxy"})
+			f := framework.NewFramework([]string{"vmiproxy", "vmimetrics"})
 			if f == nil {
 				return
 			}
-			f.Init()
 			f.Start()
 		case WatchModeUnsupported:
 			slog.Error("Unknow WatchMode which must in ['listandwatch', 'webhook']")

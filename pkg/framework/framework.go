@@ -2,66 +2,45 @@ package framework
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"pdcplet/pkg/module"
-	_ "pdcplet/pkg/module/vmiproxy"
-	"strings"
 	"sync"
 	"syscall"
 )
 
 type Framework interface {
-	Init()
 	Start()
 }
 
 // Framework 组合多个功能板块
 type framework struct {
-	modules     []module.Module
-	construtors map[string]func() module.Module
-	wg          sync.WaitGroup
+	modules []module.Module
+	// construtors map[string]func() module.Module
+	wg sync.WaitGroup
 }
 
 // NewFramework 创建框架
 func NewFramework(moduleList []string) Framework {
-
 	f := &framework{
-		modules:     make([]module.Module, 0),
-		construtors: make(map[string]func() module.Module, 0),
+		modules: make([]module.Module, 0),
 	}
 
-	module.GetAllModules()
-	registry := module.Registry
-	if len(registry) == 0 {
-		slog.Error("No module in Registry")
-		return nil
-	}
-	ms := []string{}
-	for name, _ := range registry {
-		ms = append(ms, name)
-	}
-	slog.Debug("List all modules", "list", fmt.Sprintf("[%s]", strings.Join(ms, ",")))
-
-	for _, moduleName := range moduleList {
-		ModuleName := strings.ToLower(moduleName)
-		if _, exists := registry[ModuleName]; exists {
-			f.construtors[ModuleName] = registry[ModuleName]
-		} else {
-			slog.Warn("Can't find app", "ModuleName", ModuleName)
+	for _, name := range moduleList {
+		moduleInstace, err := module.CreateModule(name, nil)
+		if err != nil {
+			slog.Error("Create module error", "name", name, "error", err)
+			return nil
 		}
+		if moduleInstace == nil {
+			slog.Error("Create module error", "name", name, "error", "module is nil")
+			return nil
+		}
+		f.modules = append(f.modules, moduleInstace)
 	}
 
 	return f
-}
-
-// Init 调用App的构造函数创建App
-func (f *framework) Init() {
-	for _, constructor := range f.construtors {
-		f.modules = append(f.modules, constructor())
-	}
 }
 
 func (f *framework) Start() {
@@ -84,6 +63,7 @@ func (f *framework) Start() {
 	// 启动App
 	for _, module := range f.modules {
 		f.wg.Add(1)
+		slog.Info("Starting Module", "ModuleName", module.Name())
 		go module.Run(ctx, &f.wg)
 	}
 
