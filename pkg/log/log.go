@@ -6,22 +6,12 @@ import (
 	"os"
 	"strings"
 
+	"pdcplet/pkg/config"
+
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
-type LogConfig struct {
-	Level   string   `mapstructure:"level"`
-	Format  string   `mapstructure:"format"`
-	Outputs []string `mapstructure:"outputs"`
-	File    struct {
-		Path       string `mapstructure:"path"`
-		MaxSize    int    `mapstructure:"maxSize"`
-		Compress   bool   `mapstructure:"compress"`
-		MaxBackups int    `mapstructure:"maxBackups"`
-	} `mapstructure:"file"`
-}
-
-func InitLogger(cfg LogConfig, appName string, version string) {
+func InitLogger(cfg config.LogConfig, appName string, version string) {
 	handler := createSlogHandler(cfg)
 	logger := slog.New(handler).With(
 		slog.String("app", appName),
@@ -30,7 +20,7 @@ func InitLogger(cfg LogConfig, appName string, version string) {
 	slog.SetDefault(logger)
 }
 
-func createSlogHandler(cfg LogConfig) slog.Handler {
+func createSlogHandler(cfg config.LogConfig) slog.Handler {
 	var outputs []io.Writer
 
 	// 根据配置添加输出目标

@@ -6,7 +6,7 @@ import (
 )
 
 // Module接口的构造函数的抽象类型
-type ModuleConstructor func(params ...interface{}) (Module, error)
+type ModuleConstructor func(params map[string]interface{}) (Module, error)
 
 // Module 接口
 type Module interface {

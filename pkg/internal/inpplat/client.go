@@ -40,7 +40,7 @@ type restProxyClient struct {
 	client *resty.Client
 }
 
-func NewClient(addr, port, baseUrl, authToken string) Client {
+func NewClient(addr, port, baseUrl, authToken string, timeout time.Duration) Client {
 	if !strings.HasPrefix(baseUrl, "/") {
 		baseUrl = "/" + baseUrl
 	}
@@ -57,7 +57,7 @@ func NewClient(addr, port, baseUrl, authToken string) Client {
 }
 
 func NewMockClient() Client {
-	return NewClient(MOCK_ADDRESS, MOCK_PORT, MOCK_API_BASE_URL, "")
+	return NewClient(MOCK_ADDRESS, MOCK_PORT, MOCK_API_BASE_URL, "", HTTP_TIMEOUT)
 }
 
 func (p *restProxyClient) CreateTask(taskParams map[string]string) (int, error) {

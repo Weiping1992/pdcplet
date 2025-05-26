@@ -2,32 +2,36 @@ version: 1.0.0
 modules:
   - name: vmiproxy
     config:
+      params:
+        k8sWatchMode: "ListWatch" # option: ListWatch/Webhook
       connections: 
       - inpplatserver
   - name: vmimetrics
     config:
+      params:
+        retriveMetricsCycle: 5s
       connections: 
       - inpplatserver
       - pdcpserver
 connections:
-  pdcpserver:
-    type: "rpc"  # option: rpc/unixdomainsocket
-    rpc:
+  - name: pdcpserver
+    type: "httpOverTcpIp"  # option: httpOverTcpIp/unixsocket
+    httpOverTcpIp:
       host: 192.168.31.138
       port: 5888
-      urlprefix: /pdcplet
-      token: ""
+      urlPrefix: /pdcplet
+      authToken: ""
       timeout: 5s
-  inpplatserver:
-    type: "rpc"  # option: rpc/unixdomainsocket
-    rpc:
+  - name: inpplat
+    type: "httpOverTcpIp"  # option: httpOverTcpIp/unixsocket
+    httpOverTcpIp:
       host: 192.168.31.138
       port: 5777
-      urlprefix: /mock
-      token: ""
+      urlPrefix: /mock
+      authToken: ""
       timeout: 5s
-    unixdomainsocket:
-      path: /tmp/inpplatserver.sock
+    unixSocket:
+      path: /tmp/inpplat.sock
 log:
   level: debug     # option: debug/info/warn/error
   format: json     # option: json/text

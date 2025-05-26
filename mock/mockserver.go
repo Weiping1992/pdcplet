@@ -38,7 +38,7 @@ func main() {
 			handleCreate(w, r)
 			return
 		} else if r.URL.Path == "/mock/api/metrics/" {
-			handleMetrics()
+			handleMetrics(w, r)
 			return
 		}
 
@@ -85,5 +85,6 @@ func handleCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Received metrics request")
 	return
 }

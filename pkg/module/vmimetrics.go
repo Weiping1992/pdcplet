@@ -2,9 +2,10 @@ package module
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"pdcplet/pkg/config"
 	"pdcplet/pkg/internal/inpplat"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,69 +15,77 @@ import (
 const VMI_METRICS_NAME = "VmiMetrics"
 
 type vmiMetricsModule struct {
-	name       string
-	inpclient  inpplat.Client
-	restclient *resty.Client
-	cycle      time.Duration // 采集周期
+	name         string
+	inpplatproxy inpplat.Client
+	restclient   *resty.Client
+	cycle        time.Duration // 采集周期
 }
 
-
-type RestClientConfig struct {
-	Addr      string
-	Port      string
-	BaseUrl   string
-	AuthToken string
-}
-
-var MOCK_SERVER = RestClientConfig{
-	Addr:      "192.168.153.142",
-	Port:      "5888",
-	BaseUrl:   "/pdcpserver/mock/",
-	AuthToken: "",
-}
+// var MOCK_SERVER = RestClientConfig{
+// 	Addr:      "192.168.153.142",
+// 	Port:      "5888",
+// 	BaseUrl:   "/pdcpserver/mock/",
+// 	AuthToken: "",
+// }
 
 const (
 	HTTP_TIMEOUT  = 5 * time.Second
 	DEFAULT_CYCLE = 5 * time.Second
 )
 
-func NewDefaultVmiMetricsModule() module.Module {
-	return NewVmiMetricsModule(&MOCK_SERVER, DEFAULT_CYCLE)
-}
+// func NewDefaultVmiMetricsModule() Module {
+// 	return NewVmiMetricsModule(&MOCK_SERVER, DEFAULT_CYCLE)
+// }
 
-func NewVmiMetricsModule(params ...interface{}) (module.Module, error) {
-	if len(params) != 2 {
-		return
+func NewVmiMetricsModule(params map[string]interface{}) (Module, error) {
+
+	if params == nil || len(params) == 0 {
+		slog.Error("vmiMetricsModule params is nil or empty")
+		return nil, fmt.Errorf("vmiMetricsModule params is nil or empty")
 	}
 
-	config *RestClientConfig, cycle time.Duration
-
-	// 1: restclient
-	if config == nil {
-		config = &MOCK_SERVER
-	}
-	if !strings.HasPrefix(config.BaseUrl, "/") {
-		config.BaseUrl = "/" + config.BaseUrl
-	}
-	baseFullUrl := "http://" + config.Addr + ":" + config.Port + config.BaseUrl
-	client := resty.New()
-	client.SetBaseURL(baseFullUrl).
-		SetTimeout(HTTP_TIMEOUT).
-		SetHeaders(map[string]string{"Content-Type": "application/json"})
-
-	// 2: inpclient
-	inpclient := inpplat.NewMockClient()
-
-	if cycle == 0 {
-		cycle = DEFAULT_CYCLE
+	vmm := &vmiMetricsModule{
+		name: VMI_METRICS_NAME,
 	}
 
-	return &vmiMetricsModule{
-		name:       NAME,
-		inpclient:  inpclient,
-		restclient: client,
-		cycle:      cycle,
+	if conns, ok := params["connections"]; !ok || len(conns.([]map[string]interface{})) == 0 {
+		slog.Error("vmiMetricsModule connections is nil or empty")
+		return nil, fmt.Errorf("vmiMetricsModule connections is nil or empty")
 	}
+
+	for _, conn := range params["connections"].([]map[string]interface{}) {
+		if conn["name"] == config.INPPLAT_CONNECTION_NAME {
+			proxy, err := NewInpProxy(conn)
+			if err != nil {
+				slog.Error("NewInpProxy failed", "errMsg", err)
+				return nil, fmt.Errorf("NewInpProxy failed: %w", err)
+			}
+			vmm.inpplatproxy = proxy
+		}
+
+		if conn["name"] == config.PDCPSERVER_CONNECTION_NAME {
+			if restConfig, ok := conn["httpOverTcpIp"].(map[string]interface{}); ok {
+				vmm.restclient = resty.New().
+					SetBaseURL(fmt.Sprintf("http://%s:%s%s", restConfig["host"], restConfig["port"], restConfig["urlPrefix"])).
+					SetTimeout(HTTP_TIMEOUT).
+					SetHeaders(map[string]string{"Content-Type": "application/json"})
+			} else {
+				slog.Error("PDCPSERVER_CONNECTION_NAME config is invalid")
+				return nil, fmt.Errorf("PDCPSERVER_CONNECTION_NAME config is invalid")
+			}
+		}
+	}
+	if vmm.inpplatproxy == nil {
+		vmm.inpplatproxy = inpplat.NewMockClient()
+	}
+
+	var cycle time.Duration = DEFAULT_CYCLE
+	if cycleParam, ok := params["retriveMetricsCycle"]; ok {
+		cycle = convertToTimeDuration(cycleParam.(string), DEFAULT_CYCLE)
+	}
+	vmm.cycle = cycle
+
+	return vmm, nil
 }
 
 func (v *vmiMetricsModule) Name() string {
@@ -111,7 +120,7 @@ func (v *vmiMetricsModule) doJob() {
 }
 
 func (v *vmiMetricsModule) CollectForwardMetrics() error {
-	metrics, err := v.inpclient.GetAllForwardMetricsGroupByTask()
+	metrics, err := v.inpplatproxy.GetAllForwardMetricsGroupByTask()
 	if err != nil {
 		slog.Error("GetAllForwardMetricsGroupByTask failed", "errMsg", err)
 		return err

@@ -2,9 +2,11 @@ package framework
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"pdcplet/pkg/config"
 	"pdcplet/pkg/module"
 	"sync"
 	"syscall"
@@ -12,6 +14,7 @@ import (
 
 type Framework interface {
 	Start()
+	AddModule(name string, params map[string]interface{}, connections []config.Connection) error
 }
 
 // Framework 组合多个功能板块
@@ -22,25 +25,33 @@ type framework struct {
 }
 
 // NewFramework 创建框架
-func NewFramework(moduleList []string) Framework {
+func NewFramework() Framework {
 	f := &framework{
 		modules: make([]module.Module, 0),
 	}
+	return f
+}
 
-	for _, name := range moduleList {
-		moduleInstace, err := module.CreateModule(name, nil)
-		if err != nil {
-			slog.Error("Create module error", "name", name, "error", err)
-			return nil
-		}
-		if moduleInstace == nil {
-			slog.Error("Create module error", "name", name, "error", "module is nil")
-			return nil
-		}
-		f.modules = append(f.modules, moduleInstace)
+func (f *framework) AddModule(name string, params map[string]interface{}, connections []config.Connection) error {
+
+	params["connections"] = make([]map[string]interface{}, 0, len(connections))
+	for _, conn := range connections {
+		params["connections"] = append(params["connections"].([]map[string]interface{}), conn.ConvertToMap())
 	}
 
-	return f
+	moduleInstace, err := module.CreateModule(name, params)
+	if err != nil {
+		slog.Error("Create module error", "name", name, "error", err)
+		return err
+	}
+	if moduleInstace == nil {
+		slog.Error("Create module error", "name", name, "error", "module is nil")
+		return fmt.Errorf("Create module %s error, err: module is ni", name)
+	}
+	f.modules = append(f.modules, moduleInstace)
+	slog.Info("Module added", "name", name)
+
+	return nil
 }
 
 func (f *framework) Start() {

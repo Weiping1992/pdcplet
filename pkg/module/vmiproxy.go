@@ -6,7 +6,10 @@ import (
 	"log/slog"
 	"os"
 	vcache "pdcplet/pkg/cache"
+	"pdcplet/pkg/config"
 	"pdcplet/pkg/internal/inpplat"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,40 +26,124 @@ import (
 
 const VMI_PROXY_NAME = "VmiProxy"
 
+const (
+	DEFAULT_EVENT_HANDLER_RESYNC_PERIOD = 1 * time.Hour
+)
+
 type vmiProxyModule struct {
 	name           string
 	cache          vcache.Cache
 	vmiInformer    cache.SharedIndexInformer
 	kubevirtClient kubecli.KubevirtClient
 	queue          workqueue.RateLimitingInterface
-	inpclient      inpplat.Client
+	inpplatproxy   inpplat.Client
 }
 
+type WatchMode int
 
+const (
+	WatchModeUnsupported WatchMode = iota
+	WatchModeListWatch
+	WatchModeWebhook
+)
 
 type VmiProxyConfig struct {
-	Proxy struct{
-			Addr      string
-			Port      string
-			BaseUrl   string
-			AuthToken string
-		}
-
+	Proxy struct {
+		Addr      string
+		Port      string
+		BaseUrl   string
+		AuthToken string
+	}
 }
 
-func NewVmiProxyModule(params ...interface{}) (Module, error) {
+func NewVmiProxyModule(params map[string]interface{}) (Module, error) {
 
-	if len(params) != 1 || params[0]. == nil {
-		return nil, fmt.Errorf("VmiProxyModule params error")
-
+	if params == nil || len(params) == 0 {
+		slog.Error("VmiProxyModule params is nil or empty")
+		return nil, fmt.Errorf("VmiProxyModule params is nil or empty")
 	}
 
+	vpm := &vmiProxyModule{
+		name: VMI_PROXY_NAME,
+	}
+
+	if conns, ok := params["connections"]; !ok || len(conns.([]map[string]interface{})) == 0 {
+		slog.Error("VmiProxyModule connections is nil or empty")
+		return nil, fmt.Errorf("VmiProxyModule connections is nil or empty")
+	}
+
+	for _, conn := range params["connections"].([]map[string]interface{}) {
+		if conn["name"] == config.INPPLAT_CONNECTION_NAME {
+			proxy, err := NewInpProxy(conn)
+			if err != nil {
+				slog.Error("NewInpProxy failed", "errMsg", err)
+				return nil, fmt.Errorf("NewInpProxy failed: %w", err)
+			}
+			vpm.inpplatproxy = proxy
+			break
+		}
+	}
+	if vpm.inpplatproxy == nil {
+		vpm.inpplatproxy = inpplat.NewMockClient()
+	}
+
+	var defaultEventHandlerResyncPeriod time.Duration
+	if v, ok := params["InformerResyncPeriod"]; !ok {
+		defaultEventHandlerResyncPeriod = DEFAULT_EVENT_HANDLER_RESYNC_PERIOD
+	} else {
+		defaultEventHandlerResyncPeriod = convertToTimeDuration(v.(string), DEFAULT_EVENT_HANDLER_RESYNC_PERIOD)
+	}
+
+	var wm WatchMode
+	if mode, ok := params["k8sWatchMode"]; ok {
+		wm = parseWatchModeFlag(mode.(string))
+	} else {
+		wm = WatchModeListWatch
+	}
+
+	switch wm {
+	case WatchModeWebhook:
+		slog.Error("Webhook watchmode DO NOT IMPLEMENT")
+		return nil, fmt.Errorf("Webhook watchmode DO NOT IMPLEMENT")
+	case WatchModeListWatch:
+		slog.Debug("Using ListAndWatch mode for VMI Proxy Module")
+		vmiInformer, kubevirtClient, statusCache, queue, err := NewVmiInformer("", defaultEventHandlerResyncPeriod)
+		if err != nil {
+			slog.Error("NewVmiInformer failed", "errMsg", err)
+			return nil, fmt.Errorf("NewVmiInformer failed: %w", err)
+		}
+		vpm.vmiInformer = vmiInformer
+		vpm.kubevirtClient = kubevirtClient
+		vpm.cache = statusCache
+		vpm.queue = queue
+	default:
+		slog.Error("Unknow WatchMode which must in ['listandwatch', 'webhook']")
+		return nil, fmt.Errorf("Unknow WatchMode which must in ['listandwatch', 'webhook']")
+	}
+
+	if vpm.vmiInformer == nil || vpm.kubevirtClient == nil || vpm.cache == nil || vpm.queue == nil || vpm.inpplatproxy == nil {
+		slog.Error("VmiProxyModule init failed, vmiInformer, kubevirtClient, cache, queue or inpplatproxy is nil")
+		return nil, fmt.Errorf("VmiProxyModule init failed, vmiInformer, kubevirtClient, cache or queue is nil")
+	}
+
+	return vpm, nil
+}
+
+func NewVmiInformer(namespace string, defaultEventHandlerResyncPeriod time.Duration) (
+	cache.SharedIndexInformer,
+	kubecli.KubevirtClient,
+	vcache.Cache,
+	workqueue.RateLimitingInterface, error) {
 
 	kubevirtClient, defaultNs := NewKubevirtClient()
 
+	if namespace == "" {
+		namespace = defaultNs
+	}
+
 	nodeName, err := getNodeName()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 	slog.Debug("get NodeName from env", "nodename", nodeName)
 
@@ -65,16 +152,16 @@ func NewVmiProxyModule(params ...interface{}) (Module, error) {
 			ListFunc: func(options k8smetav1.ListOptions) (runtime.Object, error) {
 				// options.FieldSelector = fields.OneTermEqualSelector("status.nodeName", nodeName).String()
 				options.LabelSelector = "kubevirt.io/nodeName=" + nodeName
-				return kubevirtClient.VirtualMachineInstance(defaultNs).List(&options)
+				return kubevirtClient.VirtualMachineInstance(namespace).List(&options)
 			},
 			WatchFunc: func(options k8smetav1.ListOptions) (watch.Interface, error) {
 				// options.FieldSelector = fields.OneTermEqualSelector("status.nodeName", nodeName).String()
 				options.LabelSelector = "kubevirt.io/nodeName=" + nodeName
-				return kubevirtClient.VirtualMachineInstance(defaultNs).Watch(options)
+				return kubevirtClient.VirtualMachineInstance(namespace).Watch(options)
 			},
 		},
 		&kubevirtv1.VirtualMachineInstance{},
-		10*time.Minute,
+		defaultEventHandlerResyncPeriod,
 		cache.Indexers{},
 	)
 
@@ -160,19 +247,7 @@ func NewVmiProxyModule(params ...interface{}) (Module, error) {
 			statusCache.Delete(vmi.Name)
 		},
 	})
-
-	proxy := inpplat.NewClient(
-		addr: 
-	)
-
-	return &vmiProxyModule{
-		name:           VMI_PROXY_NAME,
-		cache:          statusCache,
-		vmiInformer:    vmiInformer,
-		kubevirtClient: kubevirtClient,
-		queue:          queue,
-		inpclient:      proxy,
-	}, nil
+	return vmiInformer, kubevirtClient, statusCache, queue, nil
 }
 
 func NewKubevirtClient() (kubecli.KubevirtClient, string) {
@@ -194,6 +269,52 @@ func NewKubevirtClient() (kubecli.KubevirtClient, string) {
 		slog.Error("cannot obtain KubeVirt client", "err", err)
 	}
 	return virtClient, namespace
+}
+
+func NewInpProxy(connConfig map[string]interface{}) (inpplat.Client, error) {
+	if connConfig == nil || len(connConfig) == 0 {
+		slog.Error("VmiProxyModule connConfig is nil or empty")
+		return nil, fmt.Errorf("VmiProxyModule connConfig is nil or empty")
+	}
+
+	tp, ok := connConfig["type"].(string)
+	if !ok {
+		tp = "httpOverTcpIp"
+	}
+	if tp != "httpOverTcpIp" && tp != "httpOverUnixSocket" {
+		slog.Error("VmiProxyModule connConfig type is not supported", "type", tp)
+		return nil, fmt.Errorf("VmiProxyModule connConfig type is not supported: %s", tp)
+	}
+
+	switch tp {
+	case "httpOverTcpIp":
+		host, hostOk := connConfig["host"].(string)
+		port, portOk := connConfig["port"].(int)
+		urlPrefix, upOk := connConfig["urlPrefix"].(string)
+		authToken, atOk := connConfig["authToken"].(string)
+		timeout, tOk := connConfig["timeout"].(string)
+
+		if !hostOk || !portOk {
+			slog.Error("VmiProxyModule connConfig host or port is not set")
+			return nil, fmt.Errorf("VmiProxyModule connConfig host or port is not set")
+		}
+
+		if !upOk {
+			urlPrefix = ""
+		}
+		if !atOk {
+			authToken = ""
+		}
+		if !tOk {
+			timeout = "5s"
+		}
+
+		proxy := inpplat.NewClient(host, strconv.Itoa(port), urlPrefix, authToken, convertToTimeDuration(timeout, 5*time.Second))
+		return proxy, nil
+	default:
+		slog.Error("VmiProxyModule connConfig type is not supported", "type", tp)
+		return nil, fmt.Errorf("VmiProxyModule connConfig type is not supported: %s", tp)
+	}
 }
 
 func (a *vmiProxyModule) Name() string {
@@ -236,7 +357,7 @@ func (a *vmiProxyModule) doJob(key interface{}) {
 	slog.Debug("workqueue get vmi", "vmiName", workItem.vmi.Name)
 	switch workItem.op {
 	case CreateTaskOp:
-		taskId, err := a.inpclient.CreateTask(map[string]string{
+		taskId, err := a.inpplatproxy.CreateTask(map[string]string{
 			"name": workItem.vmi.Name,
 		})
 		if err != nil {
@@ -254,7 +375,7 @@ func (a *vmiProxyModule) doJob(key interface{}) {
 		if err != nil {
 			slog.Error("GetTaskId from cache failed", "errMsg", err)
 		}
-		err = a.inpclient.CloseTask(taskId)
+		err = a.inpplatproxy.CloseTask(taskId)
 		if err != nil {
 			slog.Error("CloseTask failed", "vmiName", workItem.vmi.Name, "taskId", taskId, "errMsg", err)
 			a.queue.AddRateLimited(workItem)
@@ -296,4 +417,27 @@ func getNodeName() (string, error) {
 		return "", fmt.Errorf("Cannot read environment variable: NODE_NAME")
 	}
 	return nodeName, nil
+}
+
+func parseWatchModeFlag(mode string) (m WatchMode) {
+	if strings.ToLower(mode) == "webhook" {
+		m = WatchModeWebhook
+	} else if strings.ToLower(mode) == "listandwatch" {
+		m = WatchModeListWatch
+	} else {
+		m = WatchModeUnsupported
+	}
+	return
+}
+
+func convertToTimeDuration(t string, defaultValue time.Duration) time.Duration {
+	if t == "" {
+		return defaultValue
+	}
+	d, err := time.ParseDuration(t)
+	if err != nil {
+		slog.Error("Failed to parse duration", "duration", t, "error", err)
+		return defaultValue
+	}
+	return d
 }

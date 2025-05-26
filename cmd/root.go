@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"pdcplet/pkg/config"
 	"pdcplet/pkg/framework"
 	"pdcplet/pkg/log"
 	"strings"
@@ -22,40 +23,48 @@ var CONFIG_LOOKUP_PATH = []string{
 	"/etc/" + TARGET_NAME + "/",
 }
 
-type WatchMode int
+var configFilePath string
 
-const (
-	WatchModeUnsupported WatchMode = iota
-	WatchModeListWatch
-	WatchModeWebhook
-)
-
-var configFile string
+var configContent config.ConfigurationFile
 
 var rootCmd = &cobra.Command{
 	Use:   TARGET_NAME,
 	Short: "The control-plane component of ProtoDissectCloudPlat",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Init log
-		var logCfg log.LogConfig
-		viper.UnmarshalKey("log", &logCfg)
-		version := viper.GetString("version")
-		log.InitLogger(logCfg, TARGET_NAME, version)
+		// Initialize logging
+		initLog()
 
-		switch parseWatchModeFlag(cmd) {
-		case WatchModeWebhook:
-			//fmt.Fprintln(os.Stderr, "Webhook watchmode DO NOT IMPLEMENT") // TODO：[log]
-			slog.Error("Webhook watchmode DO NOT IMPLEMENT")
-		case WatchModeListWatch:
-			f := framework.NewFramework([]string{"vmiproxy", "vmimetrics"})
-			if f == nil {
-				return
-			}
-			f.Start()
-		case WatchModeUnsupported:
-			slog.Error("Unknow WatchMode which must in ['listandwatch', 'webhook']")
-			//fmt.Fprintln(os.Stderr, "Unknow WatchMode which must in ['listandwatch', 'webhook']") // TODO：[log]
+		f := framework.NewFramework()
+		modulesNeedToStart := configContent.Modules
+		if len(modulesNeedToStart) == 0 {
+			slog.Error("No modules specified in config")
+			panic("No modules specified in config")
 		}
+
+		slog.Info("Modules to start", "modules", listModules(modulesNeedToStart))
+		for _, m := range modulesNeedToStart {
+			moduleName := m.Name
+			moduleParams := m.Config.Params
+			moduleConnections := make([]config.Connection, 0, len(m.Config.Connections))
+			for _, connName := range m.Config.Connections {
+				for _, c := range configContent.Connections {
+					if c.Name == connName {
+						moduleConnections = append(moduleConnections, c)
+						break
+					}
+				}
+			}
+			err := f.AddModule(moduleName, moduleParams, moduleConnections)
+			if err != nil {
+				slog.Error("Failed to create module", "module", moduleName, "error", err)
+				panic(fmt.Errorf("Failed to create module %s: %w", moduleName, err))
+			}
+		}
+
+		// Start the framework
+		slog.Info("Starting framework")
+		f.Start()
+		slog.Info("Framework started successfully")
 	},
 }
 
@@ -69,26 +78,13 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "f", "", "Config file path")
+	rootCmd.PersistentFlags().StringVarP(&configFilePath, "config", "f", "", "Config file path")
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	rootCmd.Flags().StringP("watchmode", "m", "ListAndWatch", "监控VM模式，选择 listandwatch 或 webhook")
-}
-
-func parseWatchModeFlag(cmd *cobra.Command) (m WatchMode) {
-	watchModeStr, _ := cmd.Flags().GetString("watchmode")
-	if strings.ToLower(watchModeStr) == "webhook" {
-		m = WatchModeWebhook
-	} else if strings.ToLower(watchModeStr) == "listandwatch" {
-		m = WatchModeListWatch
-	} else {
-		m = WatchModeUnsupported
-	}
-	return
 }
 
 func initConfig() {
-	if configFile != "" {
-		viper.SetConfigFile(configFile)
+	if configFilePath != "" {
+		viper.SetConfigFile(configFilePath)
 	} else {
 		viper.SetConfigName(TARGET_NAME + ".yaml")
 		for _, path := range CONFIG_LOOKUP_PATH {
@@ -104,6 +100,30 @@ func initConfig() {
 		}
 	}
 
+	// Unmarshal the config file into the configContent struct
+	if err := viper.Unmarshal(&configContent); err != nil {
+		panic(fmt.Errorf("Failed to unmarshal config file: %w", err))
+	}
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix(TARGET_NAME)
+}
+
+func initLog() {
+	// Init log
+	var logCfg config.LogConfig
+	viper.UnmarshalKey("log", &logCfg)
+	version := viper.GetString("version")
+	log.InitLogger(logCfg, TARGET_NAME, version)
+}
+
+func listModules(list []config.Module) string {
+	if len(list) == 0 {
+		return ""
+	}
+
+	names := make([]string, 0, len(list))
+	for _, module := range list {
+		names = append(names, module.Name)
+	}
+	return strings.Join(names, ", ")
 }

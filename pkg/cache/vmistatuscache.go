@@ -30,7 +30,7 @@ type vmiStatusCache struct {
 	cacheMap map[string]*vmiStatusInfo
 }
 
-func NewVmiStatusCache() *vmiStatusCache {
+func NewVmiStatusCache() Cache {
 	return &vmiStatusCache{
 		cacheMap: make(map[string]*vmiStatusInfo),
 	}
