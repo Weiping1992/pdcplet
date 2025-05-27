@@ -39,7 +39,7 @@ const (
 
 func NewVmiMetricsModule(params map[string]interface{}) (Module, error) {
 
-	if params == nil || len(params) == 0 {
+	if len(params) == 0 {
 		slog.Error("vmiMetricsModule params is nil or empty")
 		return nil, fmt.Errorf("vmiMetricsModule params is nil or empty")
 	}
@@ -116,7 +116,6 @@ func (v *vmiMetricsModule) doJob() {
 	if err != nil {
 		slog.Error("CollectForwardMetrics failed", "errMsg", err)
 	}
-	return
 }
 
 func (v *vmiMetricsModule) CollectForwardMetrics() error {
@@ -128,7 +127,8 @@ func (v *vmiMetricsModule) CollectForwardMetrics() error {
 
 	slog.Debug("GetAllForwardMetricsGroupByTask successfully", "metrics_len", len(metrics))
 
-	v.restclient.R().
+	// TODO: 需要处理返回结果
+	_, err = v.restclient.R().
 		SetBody(metrics).
 		SetResult(nil).
 		Post("/metrics/")
