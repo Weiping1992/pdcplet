@@ -38,7 +38,7 @@ func (f *framework) AddModule(name string, params map[string]interface{}, connec
 	for _, conn := range connections {
 		params["connections"] = append(params["connections"].([]map[string]interface{}), conn.ConvertToMap())
 	}
-
+	// fmt.Println("params:", params)
 	moduleInstace, err := module.CreateModule(name, params)
 	if err != nil {
 		slog.Error("Create module error", "name", name, "error", err)
@@ -46,7 +46,7 @@ func (f *framework) AddModule(name string, params map[string]interface{}, connec
 	}
 	if moduleInstace == nil {
 		slog.Error("Create module error", "name", name, "error", "module is nil")
-		return fmt.Errorf("Create module %s error, err: module is ni", name)
+		return fmt.Errorf("create module %s error, err: module is ni", name)
 	}
 	f.modules = append(f.modules, moduleInstace)
 	slog.Info("Module added", "name", name)

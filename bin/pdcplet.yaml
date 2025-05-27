@@ -5,19 +5,19 @@ modules:
       params:
         k8sWatchMode: "ListWatch" # option: ListWatch/Webhook
       connections: 
-      - inpplatserver
+      - inpplat
   - name: vmimetrics
     config:
       params:
         retriveMetricsCycle: 5s
       connections: 
-      - inpplatserver
+      - inpplat
       - pdcpserver
 connections:
   - name: pdcpserver
     type: "httpOverTcpIp"  # option: httpOverTcpIp/unixsocket
     httpOverTcpIp:
-      host: 192.168.31.138
+      host: 192.168.153.142
       port: 5888
       urlPrefix: /pdcplet
       authToken: ""
@@ -25,7 +25,7 @@ connections:
   - name: inpplat
     type: "httpOverTcpIp"  # option: httpOverTcpIp/unixsocket
     httpOverTcpIp:
-      host: 192.168.31.138
+      host: 192.168.153.141
       port: 5777
       urlPrefix: /mock
       authToken: ""

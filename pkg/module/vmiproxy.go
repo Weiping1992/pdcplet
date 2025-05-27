@@ -58,10 +58,11 @@ type VmiProxyConfig struct {
 
 func NewVmiProxyModule(params map[string]interface{}) (Module, error) {
 
-	if params == nil || len(params) == 0 {
+	if len(params) == 0 {
 		slog.Error("VmiProxyModule params is nil or empty")
 		return nil, fmt.Errorf("VmiProxyModule params is nil or empty")
 	}
+	// fmt.Println("NewVmiProxyModule called with params:", params)
 
 	vpm := &vmiProxyModule{
 		name: VMI_PROXY_NAME,
@@ -104,9 +105,9 @@ func NewVmiProxyModule(params map[string]interface{}) (Module, error) {
 	switch wm {
 	case WatchModeWebhook:
 		slog.Error("Webhook watchmode DO NOT IMPLEMENT")
-		return nil, fmt.Errorf("Webhook watchmode DO NOT IMPLEMENT")
+		return nil, fmt.Errorf("webhook watchmode DO NOT IMPLEMENT")
 	case WatchModeListWatch:
-		slog.Debug("Using ListAndWatch mode for VMI Proxy Module")
+		slog.Debug("Using ListWatch mode for VMI Proxy Module")
 		vmiInformer, kubevirtClient, statusCache, queue, err := NewVmiInformer("", defaultEventHandlerResyncPeriod)
 		if err != nil {
 			slog.Error("NewVmiInformer failed", "errMsg", err)
@@ -117,8 +118,8 @@ func NewVmiProxyModule(params map[string]interface{}) (Module, error) {
 		vpm.cache = statusCache
 		vpm.queue = queue
 	default:
-		slog.Error("Unknow WatchMode which must in ['listandwatch', 'webhook']")
-		return nil, fmt.Errorf("Unknow WatchMode which must in ['listandwatch', 'webhook']")
+		slog.Error("Unknow WatchMode which must in ['listwatch', 'webhook']")
+		return nil, fmt.Errorf("unknow WatchMode which must in ['listwatch', 'webhook']")
 	}
 
 	if vpm.vmiInformer == nil || vpm.kubevirtClient == nil || vpm.cache == nil || vpm.queue == nil || vpm.inpplatproxy == nil {
@@ -272,7 +273,7 @@ func NewKubevirtClient() (kubecli.KubevirtClient, string) {
 }
 
 func NewInpProxy(connConfig map[string]interface{}) (inpplat.Client, error) {
-	if connConfig == nil || len(connConfig) == 0 {
+	if len(connConfig) == 0 {
 		slog.Error("VmiProxyModule connConfig is nil or empty")
 		return nil, fmt.Errorf("VmiProxyModule connConfig is nil or empty")
 	}
@@ -288,11 +289,13 @@ func NewInpProxy(connConfig map[string]interface{}) (inpplat.Client, error) {
 
 	switch tp {
 	case "httpOverTcpIp":
-		host, hostOk := connConfig["host"].(string)
-		port, portOk := connConfig["port"].(int)
-		urlPrefix, upOk := connConfig["urlPrefix"].(string)
-		authToken, atOk := connConfig["authToken"].(string)
-		timeout, tOk := connConfig["timeout"].(string)
+		hConf := connConfig["httpOverTcpIp"].(map[string]interface{})
+		host, hostOk := hConf["host"].(string)
+		// fmt.Println("host:", host, "hostOk:", hostOk)
+		port, portOk := hConf["port"].(int)
+		urlPrefix, upOk := hConf["urlPrefix"].(string)
+		authToken, atOk := hConf["authToken"].(string)
+		timeout, tOk := hConf["timeout"].(string)
 
 		if !hostOk || !portOk {
 			slog.Error("VmiProxyModule connConfig host or port is not set")
@@ -414,7 +417,7 @@ func getNodeName() (string, error) {
 	nodeName := os.Getenv("NODE_NAME")
 	if len(nodeName) == 0 {
 		slog.Error("Cannot read environment variable: NODE_NAME")
-		return "", fmt.Errorf("Cannot read environment variable: NODE_NAME")
+		return "", fmt.Errorf("cannot read environment variable: NODE_NAME")
 	}
 	return nodeName, nil
 }
@@ -422,7 +425,7 @@ func getNodeName() (string, error) {
 func parseWatchModeFlag(mode string) (m WatchMode) {
 	if strings.ToLower(mode) == "webhook" {
 		m = WatchModeWebhook
-	} else if strings.ToLower(mode) == "listandwatch" {
+	} else if strings.ToLower(mode) == "listwatch" {
 		m = WatchModeListWatch
 	} else {
 		m = WatchModeUnsupported

@@ -47,17 +47,23 @@ var rootCmd = &cobra.Command{
 			moduleParams := m.Config.Params
 			moduleConnections := make([]config.Connection, 0, len(m.Config.Connections))
 			for _, connName := range m.Config.Connections {
+				alreadyFound := false
 				for _, c := range configContent.Connections {
 					if c.Name == connName {
 						moduleConnections = append(moduleConnections, c)
+						alreadyFound = true
 						break
 					}
+				}
+				if !alreadyFound {
+					slog.Error("Connection not found in config", "connection", connName)
+					panic(fmt.Errorf("connection %s not found in config", connName))
 				}
 			}
 			err := f.AddModule(moduleName, moduleParams, moduleConnections)
 			if err != nil {
 				slog.Error("Failed to create module", "module", moduleName, "error", err)
-				panic(fmt.Errorf("Failed to create module %s: %w", moduleName, err))
+				panic(fmt.Errorf("failed to create module %s: %w", moduleName, err))
 			}
 		}
 
@@ -96,14 +102,15 @@ func initConfig() {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			fmt.Println("No config file found, using defaults")
 		} else {
-			panic(fmt.Errorf("Config file error: %w", err))
+			panic(fmt.Errorf("config file error: %w", err))
 		}
 	}
 
 	// Unmarshal the config file into the configContent struct
 	if err := viper.Unmarshal(&configContent); err != nil {
-		panic(fmt.Errorf("Failed to unmarshal config file: %w", err))
+		panic(fmt.Errorf("failed to unmarshal config file: %w", err))
 	}
+	fmt.Printf("%v\n", configContent)
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix(TARGET_NAME)
 }
