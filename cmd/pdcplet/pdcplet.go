@@ -1,15 +1,12 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
-package cmd
+package main
 
 import (
 	"fmt"
 	"log/slog"
 	"os"
 	"pdcplet/pkg/config"
-	"pdcplet/pkg/framework"
 	"pdcplet/pkg/log"
+	"pdcplet/pkg/pdcplet"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -34,7 +31,7 @@ var rootCmd = &cobra.Command{
 		// Initialize logging
 		initLog()
 
-		f := framework.NewFramework()
+		f := pdcplet.NewFramework()
 		modulesNeedToStart := configContent.Modules
 		if len(modulesNeedToStart) == 0 {
 			slog.Error("No modules specified in config")
@@ -133,4 +130,8 @@ func listModules(list []config.Module) string {
 		names = append(names, module.Name)
 	}
 	return strings.Join(names, ", ")
+}
+
+func main() {
+	Execute()
 }

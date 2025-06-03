@@ -1,6 +1,6 @@
 # Go相关配置
 GO = go
-BINARY_NAME = pdcplet
+TARGETS = pdcplet pdcpserver
 BINARY_DIR = bin/
 SRC_FILES = $(wildcard *.go)
 TEST_OUTPUT_DIR = ./test/
@@ -20,13 +20,15 @@ RACE_FLAGS = -race             # 竞态检测
 all: build
 
 ## 编译项目
-build:
-	$(GO) build $(BUILD_FLAGS) -o $(BINARY_DIR)$(BINARY_NAME) main.go
+build: $(TARGETS)
 	$(GO) build $(BUILD_FLAGS) -o $(BINARY_DIR)$(MOCK_BIN) $(MOCK_DIR)$(MOCK_SRC)
 
+$(TARGETS): %:
+	$(GO) build $(BUILD_FLAGS) -o $(BINARY_DIR)$@ cmd/$@/$@.go
+
 ## 编译并运行
-run: build
-	./$(BINARY_NAME)
+# run: build
+# 	./$(BINARY_NAME)
 
 ## 运行单元测试
 test:
@@ -38,14 +40,14 @@ coverage: test
 	$(GO) tool cover -html=$(TEST_OUTPUT_DIR)/coverage.out -o $(TEST_OUTPUT_DIR)/coverage.html
 
 ## 多平台交叉编译
-build-linux:
-	GOOS=linux GOARCH=amd64 $(GO) build -o $(BINARY_NAME)-linux-amd64
+# build-linux:
+# 	GOOS=linux GOARCH=amd64 $(GO) build -o $(BINARY_NAME)-linux-amd64
 
-build-windows:
-	GOOS=windows GOARCH=amd64 $(GO) build -o $(BINARY_NAME)-windows-amd64.exe
+# build-windows:
+# 	GOOS=windows GOARCH=amd64 $(GO) build -o $(BINARY_NAME)-windows-amd64.exe
 
-build-mac:
-	GOOS=darwin GOARCH=arm64 $(GO) build -o $(BINARY_NAME)-darwin-arm64
+# build-mac:
+# 	GOOS=darwin GOARCH=arm64 $(GO) build -o $(BINARY_NAME)-darwin-arm64
 
 ## 代码格式化
 fmt:
@@ -59,9 +61,7 @@ lint:
 ## 清理构建产物
 clean:
 	$(GO) clean
-	rm -f $(BINARY_DIR)$(BINARY_NAME)*
-	rm -f $(BINARY_DIR)$(MOCK_BIN)*
-	rm -rf $(TEST_OUTPUT_DIR)
+	rm -fr $(BINARY_DIR)
 
 ## 显示帮助
 help:
