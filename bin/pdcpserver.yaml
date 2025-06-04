@@ -1,0 +1,15 @@
+version: 1.0.0
+listen:
+  host: 0.0.0.0
+  port: 5888
+log:
+  level: debug     # option: debug/info/warn/error
+  format: json     # option: json/text
+  outputs:
+    - stdout       # 控制台输出
+    - file         # 文件输出
+  file:
+    path: pdcpserver.log
+    maxSize: 100  # MB
+    maxBackups: 5  # 最大备份数
+    compress: true
