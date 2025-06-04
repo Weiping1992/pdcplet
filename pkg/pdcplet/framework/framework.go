@@ -1,4 +1,4 @@
-package pdcplet
+package framework
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"pdcplet/pkg/config"
-	"pdcplet/pkg/module"
+	"pdcplet/pkg/pdcplet/module"
 	"sync"
 	"syscall"
 )

@@ -6,7 +6,7 @@ import (
 	"os"
 	"pdcplet/pkg/config"
 	"pdcplet/pkg/log"
-	"pdcplet/pkg/pdcplet"
+	"pdcplet/pkg/pdcplet/framework"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -31,7 +31,7 @@ var rootCmd = &cobra.Command{
 		// Initialize logging
 		initLog()
 
-		f := pdcplet.NewFramework()
+		f := framework.NewFramework()
 		modulesNeedToStart := configContent.Modules
 		if len(modulesNeedToStart) == 0 {
 			slog.Error("No modules specified in config")
