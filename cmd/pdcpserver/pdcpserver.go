@@ -33,7 +33,15 @@ var rootCmd = &cobra.Command{
 
 		address := viper.GetString("listen.address")
 		port := viper.GetUint32("listen.port")
-		s := pdcpserver.New(address, port)
+		dbType := viper.GetString("db.type")
+		var dbFilePath string
+		switch dbType {
+		case "sqlite3":
+			dbFilePath = viper.GetString("db.sqlite3.database")
+		default:
+			slog.Error("Unsupported db type", "dbType", dbType)
+		}
+		s := pdcpserver.New(address, port, dbFilePath)
 
 		slog.Info("Starting server", "address", address, "port", port)
 		if err := s.Start(); err != nil {

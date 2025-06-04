@@ -9,7 +9,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func CreateVMHandler(c *gin.Context) {
+type Controller interface {
+	CreateVMHandler(c *gin.Context)
+}
+
+type defaultController struct {
+	service service.Service
+}
+
+func NewController() Controller {
+	return &defaultController{
+		service: service.New(),
+	}
+}
+
+func (controller *defaultController) CreateVMHandler(c *gin.Context) {
 	var req model.VMCreateRequest
 	req.Namespace = model.DEFAULT_NAMESPACE // Set default namespace
 
@@ -18,7 +32,7 @@ func CreateVMHandler(c *gin.Context) {
 		return
 	}
 
-	if err := service.CreateKubeVirtVM(req); err != nil {
+	if err := controller.service.CreateVM(req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

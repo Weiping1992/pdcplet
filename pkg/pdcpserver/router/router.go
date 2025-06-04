@@ -7,8 +7,11 @@ import (
 )
 
 func RegisterVMRoutes(r *gin.Engine) {
+
+	ctl := controller.NewController()
+
 	vmGroup := r.Group("/pdcpserver/workload/vm")
 	{
-		vmGroup.POST("/create", controller.CreateVMHandler)
+		vmGroup.POST("/create", ctl.CreateVMHandler)
 	}
 }

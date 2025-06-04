@@ -2,6 +2,10 @@ version: 1.0.0
 listen:
   host: 0.0.0.0
   port: 5888
+db:
+  type: sqlite3
+  sqlite3:
+    database: pdcpserver.db
 log:
   level: debug     # option: debug/info/warn/error
   format: json     # option: json/text
