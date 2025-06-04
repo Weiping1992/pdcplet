@@ -66,7 +66,7 @@ func NewVmiMetricsModule(params map[string]interface{}) (Module, error) {
 		if conn["name"] == config.PDCPSERVER_CONNECTION_NAME {
 			if restConfig, ok := conn["httpOverTcpIp"].(map[string]interface{}); ok {
 				vmm.restclient = resty.New().
-					SetBaseURL(fmt.Sprintf("http://%s:%s%s", restConfig["host"], restConfig["port"], restConfig["urlPrefix"])).
+					SetBaseURL(fmt.Sprintf("http://%s:%d%s", restConfig["host"], restConfig["port"], restConfig["urlPrefix"])).
 					SetTimeout(HTTP_TIMEOUT).
 					SetHeaders(map[string]string{"Content-Type": "application/json"})
 			} else {
