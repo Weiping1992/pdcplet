@@ -11,6 +11,8 @@ const (
 	DEFAULT_NAMESPACE = "default"
 )
 
+var runningDefault bool = false
+
 type VMCreateRequest struct {
 	Name      string `json:"name" binding:"required"`
 	Namespace string `json:"namespace"`
@@ -25,7 +27,6 @@ type VMCreateResponse struct {
 }
 
 func NewKubeVirtVM(req VMCreateRequest) *kubevirtv1.VirtualMachine {
-	var runStrategyAlways kubevirtv1.VirtualMachineRunStrategy = kubevirtv1.RunStrategyAlways
 	return &kubevirtv1.VirtualMachine{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "VirtualMachine",
@@ -36,7 +37,7 @@ func NewKubeVirtVM(req VMCreateRequest) *kubevirtv1.VirtualMachine {
 			Namespace: req.Namespace,
 		},
 		Spec: kubevirtv1.VirtualMachineSpec{
-			RunStrategy: &runStrategyAlways,
+			Running: &runningDefault,
 			Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{"kubevirt.io/vm": req.Name},
@@ -70,4 +71,14 @@ func NewKubeVirtVM(req VMCreateRequest) *kubevirtv1.VirtualMachine {
 			},
 		},
 	}
+}
+
+type VMDeleteRequest struct {
+	Name      string `json:"name" binding:"required"`
+	Namespace string `json:"namespace"`
+}
+
+type VMDeleteResponse struct {
+	Message string `json:"message"`
+	Name    string `json:"name"`
 }
